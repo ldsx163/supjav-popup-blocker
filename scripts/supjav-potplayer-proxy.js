@@ -32,7 +32,7 @@ const checkOnly = Boolean(args.check);
 const resumeStateFile = args["resume-state"] ? path.resolve(String(args["resume-state"])) : "";
 const proxyUrl = args["no-proxy"] ? null : normalizeProxy(args.proxy || getWindowsProxy());
 const clipMode = Boolean(args.clip) || args.mode === "clip";
-const cacheDir = path.resolve(args["cache-dir"] || path.join(__dirname, "supjav-potplayer-cache"));
+const cacheDir = path.resolve(args["cache-dir"] || path.join(__dirname, "..", "cache"));
 const cacheSessionDir = path.join(cacheDir, cacheSessionName(manifestUrl || "session", exportFileName || exportTitle));
 const hlsCacheDir = path.join(cacheSessionDir, "hls");
 const mediaCacheDir = path.join(cacheSessionDir, "media");
@@ -717,8 +717,10 @@ function logHlsProgress(playlist, force = false) {
   if (!force && now - lastHlsProgressAt < progressIntervalMs) return;
   lastHlsProgressAt = now;
   const cached = countHlsSegments(playlist.segments.length);
-  const bytes = fileSize(partialVideoPath("ts"));
-  console.log(`[cache] HLS ${cached}/${playlist.segments.length} segments, ${formatBytes(bytes)} written`);
+  const cachedBytes = hlsSegmentsSize(playlist.segments.length);
+  const appended = Number((readJson(path.join(cacheSessionDir, "complete-ts.json")) || {}).nextIndex) || 0;
+  const writtenBytes = fileSize(partialVideoPath("ts")) || fileSize(completeVideoPath("ts"));
+  console.log(`[cache] HLS cached ${cached}/${playlist.segments.length} segments (${formatBytes(cachedBytes)}), appended ${appended}/${playlist.segments.length} (${formatBytes(writtenBytes)} written)`);
 }
 
 function logMediaProgress(force = false) {
@@ -736,6 +738,14 @@ function countHlsSegments(total) {
     if (fs.existsSync(hlsSegmentPath(index))) count += 1;
   }
   return count;
+}
+
+function hlsSegmentsSize(total) {
+  let bytes = 0;
+  for (let index = 0; index < total; index += 1) {
+    bytes += fileSize(hlsSegmentPath(index));
+  }
+  return bytes;
 }
 
 function fileSize(file) {
@@ -1297,7 +1307,7 @@ function usage() {
   console.error(
     [
       "Usage:",
-      '  node "C:\\tmp\\supjav-potplayer-proxy.js" --url "<m3u8-or-mp4>" --seek 5042.90 --origin "https://turbovidhls.com"',
+      '  node "scripts\\supjav-potplayer-proxy.js" --url "<m3u8-or-mp4>" --seek 5042.90 --origin "https://turbovidhls.com"',
       "",
       "Options:",
       "  --referer <url>",

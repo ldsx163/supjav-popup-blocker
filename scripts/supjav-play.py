@@ -9,10 +9,14 @@ from datetime import datetime
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
-EXPORT_FILE = ROOT / "supjav-export.txt"
-LIBRARY_FILE = ROOT / "supjav-potplayer-library.json"
-STATE_DIR = ROOT / "supjav-potplayer-states"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent if SCRIPT_DIR.name.lower() == "scripts" else SCRIPT_DIR
+PROXY_SCRIPT = str(Path("scripts") / "supjav-potplayer-proxy.js")
+DATA_DIR = PROJECT_ROOT / "data"
+REL_STATE_DIR = Path("data") / "supjav-potplayer-states"
+EXPORT_FILE = DATA_DIR / "supjav-export.txt"
+LIBRARY_FILE = DATA_DIR / "supjav-potplayer-library.json"
+STATE_DIR = PROJECT_ROOT / REL_STATE_DIR
 
 
 def main():
@@ -39,6 +43,8 @@ def play_export():
     if not is_proxy_command(argv):
         return continue_menu()
 
+    argv = normalize_proxy_argv(argv)
+    command = subprocess.list2cmdline(argv)
     record = record_from_export(lines, argv, command)
     argv = prepare_proxy_args(record, argv, record["start"])
     save_record(record, argv)
@@ -63,7 +69,7 @@ def continue_menu():
         return 1
 
     record = records[int(choice) - 1]
-    argv = list(record.get("argv") or [])
+    argv = normalize_proxy_argv(list(record.get("argv") or []))
     if not argv:
         pause("Saved record has no playable command. Export this video again.")
         return 1
@@ -104,7 +110,7 @@ def record_from_export(lines, argv, command):
     start = parse_export_seconds(export_value(lines, "Start"))
     resolution = export_value(lines, "Resolution")
     record_id = short_hash(f"{filename}\n{stream_url}")
-    state_file = str(STATE_DIR / f"{record_id}.json")
+    state_file = relative_state_file(record_id)
     now = now_iso()
 
     existing = load_library().get(record_id, {})
@@ -129,8 +135,9 @@ def record_from_export(lines, argv, command):
 
 
 def prepare_proxy_args(record, argv, seconds):
-    result = list(argv)
-    state_file = record.get("stateFile") or str(STATE_DIR / f"{record['id']}.json")
+    result = normalize_proxy_argv(list(argv))
+    state_file = normalize_state_file(record.get("stateFile"), record["id"])
+    record["stateFile"] = state_file
     result = set_arg(result, "--resume-state", state_file)
     result = set_arg(result, "--seek", f"{max(0, float(seconds or 0)):.2f}")
     if record.get("duration"):
@@ -150,7 +157,7 @@ def run_proxy(argv, record):
     print(subprocess.list2cmdline(argv))
     print()
 
-    code = subprocess.call(argv, env=env, cwd=str(ROOT))
+    code = subprocess.call(argv, env=env, cwd=str(PROJECT_ROOT))
     if code and code != 0xC000013A:
         pause(f"Process exited with code {code}.")
     return code
@@ -160,15 +167,22 @@ def load_library():
     try:
         data = json.loads(LIBRARY_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("items"), dict):
-            return data["items"]
+            return {
+                key: normalize_record_paths(value)
+                for key, value in data["items"].items()
+                if isinstance(value, dict)
+            }
     except Exception:
         pass
     return {}
 
 
 def save_record(record, argv):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    record = {**record, "argv": argv, "updatedAt": now_iso()}
+    argv = normalize_proxy_argv(argv)
+    record = normalize_record_paths(record)
+    record = {**record, "argv": argv, "command": subprocess.list2cmdline(argv), "updatedAt": now_iso()}
     items = load_library()
     items[record["id"]] = record
     data = {"version": 1, "items": items}
@@ -178,10 +192,10 @@ def save_record(record, argv):
 
 
 def resume_seconds(record):
-    state_file = record.get("stateFile")
+    state_file = record_state_path(record)
     if state_file:
         try:
-            data = json.loads(Path(state_file).read_text(encoding="utf-8"))
+            data = json.loads(state_file.read_text(encoding="utf-8"))
             value = float(data.get("seconds", 0))
             if value >= 0:
                 return value
@@ -206,10 +220,10 @@ def record_sort_key(record):
 
 def last_played_label(record):
     value = ""
-    state_file = record.get("stateFile")
+    state_file = record_state_path(record)
     if state_file:
         try:
-            data = json.loads(Path(state_file).read_text(encoding="utf-8"))
+            data = json.loads(state_file.read_text(encoding="utf-8"))
             value = str(data.get("updatedAt") or "")
         except Exception:
             value = ""
@@ -219,6 +233,60 @@ def last_played_label(record):
 
 def is_proxy_command(argv):
     return len(argv) >= 2 and Path(argv[1]).name.lower() == "supjav-potplayer-proxy.js"
+
+
+def normalize_proxy_argv(argv):
+    result = [str(item) for item in argv]
+    if is_proxy_command(result):
+        result[1] = PROXY_SCRIPT
+    return result
+
+
+def normalize_record_paths(record):
+    result = dict(record)
+    record_id = result.get("id")
+    if record_id:
+        result["stateFile"] = normalize_state_file(result.get("stateFile"), record_id)
+    if isinstance(result.get("argv"), list):
+        result["argv"] = normalize_proxy_argv(result["argv"])
+        if record_id:
+            result["argv"] = set_arg(result["argv"], "--resume-state", result["stateFile"])
+    if result.get("argv"):
+        result["command"] = subprocess.list2cmdline(result["argv"])
+    return result
+
+
+def relative_state_file(record_id):
+    return str(REL_STATE_DIR / f"{record_id}.json")
+
+
+def normalize_state_file(value, record_id):
+    fallback = relative_state_file(record_id)
+    if not value:
+        return fallback
+    path = Path(str(value))
+    if not path.is_absolute():
+        parts = [part.lower() for part in path.parts]
+        if len(parts) >= 3 and parts[0] == "data" and parts[1] == "data" and parts[2] == "supjav-potplayer-states":
+            return str(Path("data").joinpath(*path.parts[2:]))
+        if parts and parts[0] == "supjav-potplayer-states":
+            return str(Path("data") / path)
+        return str(path)
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        pass
+    if path.parent.name.lower() == REL_STATE_DIR.name.lower() and path.name.lower() == f"{record_id}.json":
+        return fallback
+    return str(path)
+
+
+def record_state_path(record):
+    record_id = record.get("id")
+    if not record_id:
+        return None
+    path = Path(normalize_state_file(record.get("stateFile"), record_id))
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def export_value(lines, name):

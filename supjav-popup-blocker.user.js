@@ -1272,7 +1272,7 @@
     const origin = headerValue("Origin");
     const proxyParts = [
       "node",
-      quoteCmdArg("C:\\tmp\\supjav-potplayer-proxy.js"),
+      quoteCmdArg("scripts\\supjav-potplayer-proxy.js"),
       "--url",
       quoteCmdArg(streamUrl),
       "--seek",
