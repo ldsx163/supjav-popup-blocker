@@ -1,0 +1,7 @@
+supjav-export.txt
+supjav-potplayer-cache/
+supjav-potplayer-library.json
+supjav-potplayer-states/
+__pycache__/
+*.pyc
+*.log
