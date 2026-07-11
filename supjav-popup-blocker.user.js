@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supjav popup blocker
 // @namespace    local.supjav-popup-blocker
-// @version      1.0.0
+// @version      1.2.0
 // @description  Block Supjav popups and auto-load the real player iframe.
 // @match        *://supjav.com/*
 // @match        *://*.supjav.com/*
@@ -11,6 +11,21 @@
 // @match        *://*.emturbovid.com/*
 // @match        *://turbovidhls.com/*
 // @match        *://*.turbovidhls.com/*
+// @match        *://fc2stream.tv/*
+// @match        *://*.fc2stream.tv/*
+// @match        *://streamtape.com/*
+// @match        *://*.streamtape.com/*
+// @match        *://streamtape.to/*
+// @match        *://*.streamtape.to/*
+// @match        *://streamtape.site/*
+// @match        *://*.streamtape.site/*
+// @match        *://*.tapecontent.net/*
+// @match        *://voe.sx/*
+// @match        *://*.voe.sx/*
+// @match        *://*.voeunblock.com/*
+// @match        *://*.voeunbl0ck.com/*
+// @match        *://*.turboviplay.com/*
+// @match        *://*.turbosplayer.com/*
 // @match        *://*.mnaspm.com/*
 // @match        *://*.mayzaent.com/*
 // @match        *://*.marzaent.com/*
@@ -23,6 +38,8 @@
 // @match        *://*.tapioni.com/*
 // @match        *://*.storagexhd.com/*
 // @match        *://*.javhdhello.com/*
+// VOE mirrors rotate hostnames (e.g. pamelachangemission.com). Broad match is
+// gated at runtime by relevantContext()/voePlayerContext().
 // @match        *://*/*
 // @include      about:blank
 // @run-at       document-start
@@ -63,7 +80,14 @@
     "wwpvpbktgoets.space",
     "tsyndicate.com",
     "stripchat.com",
-    "barbulasnippet.qpon"
+    "barbulasnippet.qpon",
+    // VOE play/pause popunders observed on rotating mirrors
+    "throbbingvagueforms.com",
+    "cruzswim.org",
+    "anthemoutbackwrought.com",
+    "chaliceguzzlerlandlord.com",
+    "reedunpack.com",
+    "bareleggedhelmhim.com"
   ];
 
   const allowedDomains = [
@@ -79,6 +103,13 @@
     "streamtape.com",
     "streamtape.to",
     "streamtape.site",
+    "voe.sx",
+    "voeunblock.com",
+    "voeunbl0ck.com"
+  ];
+
+  // VOE serves the real player from rotating mirror hosts (title/referrer markers).
+  const voeStaticDomains = [
     "voe.sx",
     "voeunblock.com",
     "voeunbl0ck.com"
@@ -155,10 +186,32 @@
     }
   };
 
+  // VOE player mirrors rotate (e.g. pamelachangemission.com). Detect by known
+  // hosts, voe.sx referrer, title markers, or /e/<id> player path.
+  const voePlayerContext = () => {
+    const host = location.hostname.replace(/^www\./, "");
+    if (voeStaticDomains.some((domain) => hostMatches(host, domain))) return true;
+
+    const referrerHost = hostOf(document.referrer);
+    if (voeStaticDomains.some((domain) => hostMatches(referrerHost, domain))) return true;
+
+    const title = document.title || "";
+    if (/\bVOE\b/i.test(title) && /Content Delivery Network|Video Cloud|观看/i.test(title)) return true;
+
+    // Embed path used by VOE mirrors: /e/<alphanumeric id>
+    if (/^\/e\/[a-z0-9]+\/?$/i.test(location.pathname) &&
+        (supjavContext() || /voe\.sx|VOE/i.test([document.referrer, title].join(" ")))) {
+      return true;
+    }
+
+    return false;
+  };
+
   const relevantContext = () =>
     relevantHost(location.hostname.replace(/^www\./, "")) ||
     relevantHost(hostOf(document.referrer)) ||
-    supjavContext();
+    supjavContext() ||
+    voePlayerContext();
 
   const topLevel = () => {
     try {
@@ -426,7 +479,7 @@
   function pagePatch(blockedDomains, allowedDomains, playerDomains) {
     if (window.__supjavPopupBlocker) return;
     window.__supjavPopupBlocker = true;
-    window.__supjavPopupBlockerVersion = "1.0.0";
+    window.__supjavPopupBlockerVersion = "1.2.0";
 
     const hostMatches = (host, domain) => host === domain || host.endsWith("." + domain);
     const hostOf = (url) => {
@@ -436,6 +489,11 @@
         return "";
       }
     };
+    const voeStaticDomains = [
+      "voe.sx",
+      "voeunblock.com",
+      "voeunbl0ck.com"
+    ];
     const relevantHost = (host) =>
       [...allowedDomains, ...blockedDomains, ...playerDomains].some((domain) => hostMatches(host, domain));
     const supjavContext = () => {
@@ -447,10 +505,28 @@
         return /(?:^|[/?#&@])(?:www\.)?supjav\.com\b/i.test(text);
       }
     };
+    const voePlayerContext = () => {
+      const host = location.hostname.replace(/^www\./, "");
+      if (voeStaticDomains.some((domain) => hostMatches(host, domain))) return true;
+
+      const referrerHost = hostOf(document.referrer);
+      if (voeStaticDomains.some((domain) => hostMatches(referrerHost, domain))) return true;
+
+      const title = document.title || "";
+      if (/\bVOE\b/i.test(title) && /Content Delivery Network|Video Cloud|观看/i.test(title)) return true;
+
+      if (/^\/e\/[a-z0-9]+\/?$/i.test(location.pathname) &&
+          (supjavContext() || /voe\.sx|VOE/i.test([document.referrer, title].join(" ")))) {
+        return true;
+      }
+
+      return false;
+    };
     const relevantContext = () =>
       relevantHost(location.hostname.replace(/^www\./, "")) ||
       relevantHost(hostOf(document.referrer)) ||
-      supjavContext();
+      supjavContext() ||
+      voePlayerContext();
     const allowed = (url) => {
       const host = hostOf(url);
       return allowedDomains.some((domain) => hostMatches(host, domain));
@@ -482,9 +558,21 @@
       (blankPopupAction(url) && explicitPopupTarget(target) && relevantContext()) ||
       blockedNavigation(url, explicitPopupTarget(target));
     const formUrl = (form) => form.getAttribute("action") || form.action || location.href;
+    // Supjav "DOWNLOAD : RG / K2S / SUBY" row.
+    // Links are a.btn-down with only short labels ("RG"), so match by class / dl=
+    // param / .downscase container — not by "DOWNLOAD : RG" on the same node.
     const disabledDownloadControl = (target) => {
-      const control = target.closest && target.closest("a,button,[role='button'],[onclick]");
+      if (!target || !target.closest) return null;
+
+      const byClass = target.closest("a.btn-down, .downscase a");
+      if (byClass) return byClass;
+      if (target.closest(".downscase")) return target.closest(".downscase");
+
+      const control = target.closest("a,button,[role='button'],[onclick]");
       if (!control) return null;
+
+      const href = control.getAttribute && (control.getAttribute("href") || control.href || "");
+      if (/[?&]dl=/i.test(String(href))) return control;
 
       const label = [
         control.innerText,
@@ -493,7 +581,45 @@
         control.title
       ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 
-      return /\bdownload\s*:?\s*(?:rg|suby)\b/i.test(label) ? control : null;
+      if (/^(?:rg|k2s|suby)$/i.test(label)) return control;
+      return /\bdownload\s*:?\s*(?:rg|k2s|suby)\b/i.test(label) ? control : null;
+    };
+    const neutralizeDownloadControl = (node) => {
+      if (!node || node.nodeType !== 1) return;
+      const links = [];
+      if (node.matches && node.matches("a.btn-down, .downscase a")) links.push(node);
+      if (node.querySelectorAll) links.push(...node.querySelectorAll("a.btn-down, .downscase a"));
+      for (const link of links) {
+        if (link.dataset.supjavDownloadDisabled === "1") continue;
+        link.dataset.supjavDownloadDisabled = "1";
+        link.removeAttribute("target");
+        try {
+          link.setAttribute("href", "javascript:void(0)");
+        } catch {
+          // ignore
+        }
+        link.setAttribute("aria-disabled", "true");
+        link.setAttribute("tabindex", "-1");
+        link.style.pointerEvents = "none";
+        link.style.opacity = "0.4";
+        link.style.cursor = "not-allowed";
+        link.onclick = (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return false;
+        };
+      }
+      if (node.matches && node.matches(".downscase")) {
+        node.setAttribute("aria-disabled", "true");
+        node.style.pointerEvents = "none";
+        node.style.opacity = "0.45";
+      } else if (node.querySelectorAll) {
+        node.querySelectorAll(".downscase").forEach((el) => {
+          el.setAttribute("aria-disabled", "true");
+          el.style.pointerEvents = "none";
+          el.style.opacity = "0.45";
+        });
+      }
     };
     const blockedResourceNode = (node) =>
       node && node.nodeType === 1 &&
@@ -501,6 +627,9 @@
       blocked(node.getAttribute("src") || node.src || "");
 
     let lastPlaybackNudge = 0;
+    // After an explicit pause control click, suppress auto-resume for a short window.
+    // Otherwise the play/pause click handler's nudgePlayback() restarts the video.
+    let pauseGuardUntil = 0;
     const fakeWindow = {
       closed: false,
       close() { this.closed = true; },
@@ -558,7 +687,12 @@
         if (document.cookie) headers.push(`Cookie: ${document.cookie}`);
       } else if (hostMatches(host, "streamtape.com") || hostMatches(host, "streamtape.to") || hostMatches(host, "streamtape.site") || hostMatches(host, "tapecontent.net")) {
         referer = location.href;
-      } else if (hostMatches(host, "voe.sx") || hostMatches(host, "voeunblock.com") || hostMatches(host, "voeunbl0ck.com")) {
+      } else if (
+        hostMatches(host, "voe.sx") ||
+        hostMatches(host, "voeunblock.com") ||
+        hostMatches(host, "voeunbl0ck.com") ||
+        voePlayerContext()
+      ) {
         referer = location.href;
       } else if (hostMatches(location.hostname.replace(/^www\./, ""), "turbovidhls.com")) {
         headers.push("Origin: https://turbovidhls.com");
@@ -760,20 +894,92 @@
       broadcastExportState();
     }, 1000);
 
-    const nudgePlayback = () => {
+    const markExplicitPause = () => {
+      pauseGuardUntil = Date.now() + 1500;
+    };
+    // After a user play gesture (center overlay / control-bar Play), skip
+    // auto-nudge for a short window so a blocked ad popup cannot re-click the
+    // same toggle and pause the video again (ST cold-start race).
+    let playGestureUntil = 0;
+    const markPlayGesture = () => {
+      playGestureUntil = Date.now() + 1200;
+    };
+    const pauseControlIntent = (control) => {
+      if (!control) return false;
+      const aria = String(control.getAttribute("aria-label") || control.title || "").trim();
+      // Prefer aria/title: Plyr toggles the same button between "Pause" and "Play".
+      if (/暂停|pause/i.test(aria) && !/^(?:play|播放)/i.test(aria)) return true;
+      if (/^(?:play|播放)/i.test(aria)) return false;
+      // Fallback: pressed play toggle usually means "currently playing → click pauses".
+      if (control.matches && control.matches(
+        ".plyr__control--pressed[data-plyr='play'], .jw-icon-playback.jw-icon-pause, .vjs-playing .vjs-play-control"
+      )) return true;
+      return false;
+    };
+    const playControlIntent = (control) => {
+      if (!control) return false;
+      if (pauseControlIntent(control)) return false;
+      const aria = String(control.getAttribute("aria-label") || control.title || "").trim();
+      if (/^(?:play|播放)/i.test(aria)) return true;
+      if (control.matches && control.matches([
+        ".plyr__control--overlaid",
+        ".plyr__control--play",
+        "[data-plyr='play']:not(.plyr__control--pressed)",
+        ".vjs-big-play-button",
+        ".jw-display-icon-container",
+        ".jw-icon-display",
+        ".jw-idle-label"
+      ].join(","))) return true;
+      return false;
+    };
+    const dismissResumePrompt = () => {
+      // Streamtape Plyr shows "Resume at HH:MM?" bottom-right; auto-accept so it
+      // is not mistaken for an ad and does not block the first play gesture.
+      const yes = document.querySelector(
+        ".plyr__resume__yes, .plyr__menu__container.plyr__resume .plyr__resume__yes, .plyr__resume button"
+      );
+      if (!yes) return;
+      const label = String(yes.textContent || yes.getAttribute("aria-label") || "").trim();
+      if (yes.classList.contains("plyr__resume__yes") || /^(?:yes|是|继续|ok)$/i.test(label)) {
+        try {
+          yes.click();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    const nudgePlayback = (options = {}) => {
       const now = Date.now();
+      if (now < pauseGuardUntil) return;
       if (now - lastPlaybackNudge < 700) return;
       lastPlaybackNudge = now;
 
-      const attempt = () => {
+      // During an explicit user play click, only silent media play is allowed.
+      // Blocked window.open → nudge used to re-click the same Plyr toggle and
+      // flip Play→Pause (ST cold-start stayed paused).
+      const inPlayGesture = !options.force && now < playGestureUntil;
+      const allowButtonClick =
+        !inPlayGesture &&
+        options.allowButtonClick !== false &&
+        !options.forceSilent;
+
+      const attempt = (permitButtonClick) => {
+        if (Date.now() < pauseGuardUntil) return;
         try {
           if (window.jwplayer) window.jwplayer().play(true);
         } catch {
           // Not every player exposes JW Player.
         }
 
-        const video = document.querySelector("video");
-        if (video && video.paused) video.play().catch(() => {});
+        const video = playerVideo();
+        if (video) {
+          prepareVideoSource(video);
+          if (video.paused) video.play().catch(() => {});
+        }
+
+        if (!permitButtonClick) return;
+        if (video && !video.paused) return;
+        if (Date.now() < playGestureUntil && !options.force) return;
 
         const playButton = [...document.querySelectorAll([
           "button",
@@ -784,26 +990,43 @@
           ".vjs-big-play-button",
           ".vjs-play-control",
           ".plyr__control--overlaid",
-          ".plyr__control--play"
+          ".plyr__control--play",
+          "[data-plyr='play']"
         ].join(","))]
-          .find((el) => /play|播放/i.test([
-            el.getAttribute("aria-label"),
-            el.title,
-            el.textContent,
-            el.className
-          ].filter(Boolean).join(" ")));
+          .find((el) => {
+            const label = [
+              el.getAttribute("aria-label"),
+              el.title,
+              el.textContent,
+              el.className
+            ].filter(Boolean).join(" ");
+            // Never auto-click a pause affordance.
+            if (pauseControlIntent(el)) return false;
+            return /play|播放/i.test(label);
+          });
 
         if (playButton && (!video || video.paused)) playButton.click();
       };
 
-      attempt();
-      setTimeout(attempt, 80);
-      setTimeout(attempt, 250);
+      // First pass: media only when inside a play gesture / forceSilent.
+      attempt(allowButtonClick);
+      setTimeout(() => attempt(false), 80);
+      setTimeout(() => {
+        // Late retry may click UI only if gesture window ended and still paused.
+        const video = playerVideo();
+        if (!video || !video.paused) return;
+        const canClick =
+          options.force ||
+          (Date.now() >= playGestureUntil &&
+            options.allowButtonClick !== false &&
+            !options.forceSilent);
+        attempt(!!canClick);
+      }, 250);
     };
 
     const playerArea = (target) =>
       target && target.closest &&
-      target.closest("video,.jwplayer,.jw-media,.jw-preview,.jw-display,.jw-overlays,.jw-controls,.vjs-tech,.video-js,.plyr,.plyr__video-wrapper");
+      target.closest("video,.jwplayer,.jw-media,.jw-preview,.jw-display,.jw-overlays,.jw-controls,.jw-wrapper,.vjs-tech,.video-js,.plyr,.plyr__video-wrapper");
     const playerControl = (target) =>
       target && target.closest &&
       target.closest([
@@ -822,6 +1045,10 @@
         ".jw-knob",
         ".jw-display-icon-container",
         ".jw-display-icon",
+        ".jw-display-icon-display",
+        ".jw-button-color",
+        ".jw-idle-label",
+        ".jw-tooltip",
         ".vjs-control-bar",
         ".vjs-control",
         ".vjs-big-play-button",
@@ -844,52 +1071,147 @@
         ".jw-icon-playback",
         ".jw-display-icon-container",
         ".jw-display-icon",
+        ".jw-display-icon-display",
+        ".jw-icon-display",
+        ".jw-idle-label",
         ".vjs-big-play-button",
         ".vjs-play-control",
         ".plyr__control--overlaid",
-        ".plyr__control--play"
+        ".plyr__control--play",
+        "[data-plyr='play']"
       ].join(","))) return control;
 
       return null;
+    };
+    // Surface clicks are swallowed so ad scripts cannot open popunders. While
+    // paused, the surface starts playback; while playing, only control-bar
+    // buttons may pause — never a random surface click.
+    const playerVideo = () =>
+      document.querySelector("#mainvideo") || document.querySelector("video");
+    const isPlaybackActive = () => {
+      try {
+        if (window.jwplayer) {
+          const state = String(window.jwplayer().getState() || "");
+          if (/playing|buffering/i.test(state)) return true;
+          if (/paused|idle|complete/i.test(state)) return false;
+        }
+      } catch {
+        // Fall through to the media element.
+      }
+      const video = playerVideo();
+      return !!(video && !video.paused && !video.ended);
     };
     const removePlayerAds = () => {
       document.querySelectorAll([
         "#dontfoid",
         ".play-overlay",
         ".ima-ad-container",
+        ".plyr__ads",
         "iframe[title='Advertisement']",
-        "iframe[src*='imasdk.googleapis.com']"
+        "video[title='Advertisement']",
+        "iframe[src*='imasdk.googleapis.com']",
+        "iframe[src*='doubleclick']",
+        "iframe[src*='googlesyndication']"
       ].join(",")).forEach((el) => el.remove());
+      dismissResumePrompt();
     };
+    const streamtapeHost = (host) =>
+      hostMatches(host, "streamtape.com") ||
+      hostMatches(host, "streamtape.to") ||
+      hostMatches(host, "streamtape.site");
     const directStreamtapeSrc = () => {
-      if (!hostMatches(location.hostname.replace(/^www\./, ""), "streamtape.com")) return "";
+      const host = location.hostname.replace(/^www\./, "");
+      if (!streamtapeHost(host)) return "";
 
       const link = [
         document.querySelector("#botlink"),
         document.querySelector("#robotlink"),
         document.querySelector("#ideoolink")
       ].map((el) => el && el.textContent && el.textContent.trim())
-        .find((text) => text && /streamtape\.[a-z]+\/get_video\b/i.test(text));
+        // Prefer real streamtape.* links; ignore decoy hosts like streambape.com.
+        .find((text) => text && /(?:^|\/\/)streamtape\.[a-z]+\/get_video\b/i.test(text));
 
       if (!link) return "";
 
       try {
-        const url = new URL(link, location.href);
+        // Bot links are protocol-relative ("//streamtape.com/get_video?...").
+        // Normalize before URL() so a missing leading slash cannot become
+        // https://streamtape.com/streamtape.com/get_video (broken relative path).
+        const normalized = /^(?:https?:)?\/\//i.test(link)
+          ? link.replace(/^\/\//, "https://")
+          : (/^streamtape\.[a-z]+\//i.test(link) ? `https://${link}` : link);
+        const url = new URL(normalized, location.href);
+        if (!streamtapeHost(url.hostname.replace(/^www\./, ""))) return "";
+        if (!/\/get_video\b/i.test(url.pathname)) return "";
         url.searchParams.set("stream", "1");
         return url.href;
       } catch {
         return "";
       }
     };
-    const prepareVideoSource = (video) => {
+    const validStreamtapeVideoSrc = (value) => {
+      if (!value) return false;
+      try {
+        const url = new URL(String(value), location.href);
+        if (!streamtapeHost(url.hostname.replace(/^www\./, ""))) return false;
+        // Must be /get_video, not /streamtape.com/get_video (relative-path bug).
+        if (!/^\/get_video$/i.test(url.pathname)) return false;
+        if (url.searchParams.get("stream") !== "1") return false;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const prepareVideoSource = (video = playerVideo()) => {
       removePlayerAds();
-      if (!video || video.currentSrc || video.src) return;
+      if (!video) return;
 
       const src = directStreamtapeSrc();
-      if (src) video.src = src;
+      if (!src) return;
+
+      const attrSrc = video.getAttribute("src") || "";
+      const current = video.currentSrc || video.src || attrSrc;
+      if (validStreamtapeVideoSrc(current) || validStreamtapeVideoSrc(attrSrc)) return;
+
+      try {
+        video.pause();
+      } catch {
+        // Ignore pause failures on empty media.
+      }
+      video.removeAttribute("src");
+      video.src = src;
+      try {
+        video.load();
+      } catch {
+        // load() is best-effort.
+      }
+    };
+    const startPlaybackFromSurface = () => {
+      if (isPlaybackActive()) return;
+
+      markPlayGesture();
+      prepareVideoSource();
+      dismissResumePrompt();
+
+      try {
+        if (window.jwplayer && typeof window.jwplayer().play === "function") {
+          window.jwplayer().play(true);
+        }
+      } catch {
+        // Fall through to the media element.
+      }
+
+      const video = playerVideo();
+      if (video && (video.paused || video.ended)) {
+        video.play().catch(() => {});
+      } else if (!video) {
+        nudgePlayback({ forceSilent: true });
+      }
     };
     const maintainPlayerSurface = () => {
       removePlayerAds();
+      prepareVideoSource();
+      neutralizeDownloadControl(document.documentElement);
       const layer = document.getElementById("supjav-playback-click-layer");
       if (layer) layer.remove();
     };
@@ -897,7 +1219,12 @@
     const nativeOpen = window.open;
     const wrappedOpen = function (url, target, ...args) {
       if (blockedPopup(url, target)) {
-        nudgePlayback();
+        // ST center-play often opens an ad tab in the same click. If we play()
+        // here, Plyr's own toggle then sees "playing" and pauses. During an
+        // explicit play gesture, only block the popup — do not touch media.
+        if (Date.now() >= playGestureUntil) {
+          nudgePlayback({ forceSilent: true, allowButtonClick: false });
+        }
         return fakeWindow;
       }
       return nativeOpen.call(this, url, target, ...args);
@@ -912,6 +1239,63 @@
     } catch {
       window.open = wrappedOpen;
     }
+
+    // Popunder engines (e.g. adexchangerapid "-pb" tabover) bypass the wrapped
+    // window.open by creating a throwaway same-origin about:blank iframe and
+    // calling its pristine native open from that child realm. Guard ONLY those
+    // helper frames — never the real player frame (streamtape/fc2/voe/turbo*),
+    // whose own bootstrap reads contentWindow and assigns window.open; touching
+    // it breaks playback.
+    const framePopupCandidate = (iframe) => {
+      if (!iframe || iframe.tagName !== "IFRAME") return false;
+      const src = iframe.getAttribute("src") || iframe.src || "";
+      if (!src || /^about:blank(?:[#?].*)?$/i.test(src.trim())) return true;
+      return blocked(src);
+    };
+    const wrapFrameOpen = (nativeFrameOpen) => {
+      const wrapped = function (url, target, ...args) {
+        if (blockedPopup(url, target)) {
+          if (Date.now() >= playGestureUntil) {
+            nudgePlayback({ forceSilent: true, allowButtonClick: false });
+          }
+          return fakeWindow;
+        }
+        return nativeFrameOpen.call(this, url, target, ...args);
+      };
+      wrapped.__supjavWrappedOpen = true;
+      return wrapped;
+    };
+    const patchFrameWindow = (frameWindow) => {
+      if (!frameWindow) return;
+      try {
+        if (frameWindow.open && !frameWindow.open.__supjavWrappedOpen) {
+          const wrapped = wrapFrameOpen(frameWindow.open);
+          try {
+            Object.defineProperty(frameWindow, "open", {
+              configurable: true,
+              writable: true,
+              value: wrapped
+            });
+          } catch {
+            frameWindow.open = wrapped;
+          }
+        }
+      } catch {
+        // Cross-origin frames reject access; those cannot reach our page anyway.
+      }
+    };
+    const patchFrameOpen = (iframe) => {
+      if (!framePopupCandidate(iframe)) return;
+      try {
+        patchFrameWindow(iframe.contentWindow);
+      } catch {
+        // Cross-origin helper frame; nothing reachable to guard.
+      }
+    };
+
+    const patchAllFrames = () => {
+      for (const frame of document.querySelectorAll("iframe")) patchFrameOpen(frame);
+    };
 
     const nativeClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () {
@@ -990,13 +1374,21 @@
 
       const nativeAppendChild = Node.prototype.appendChild;
       const nativeInsertBefore = Node.prototype.insertBefore;
+      const patchInsertedFrame = (node) => {
+        if (!node || node.nodeType !== 1 || !/^IFRAME$/i.test(node.tagName)) return;
+        patchFrameOpen(node);
+      };
       Node.prototype.appendChild = function (node) {
         if (blockedResourceNode(node)) return node;
-        return nativeAppendChild.call(this, node);
+        const result = nativeAppendChild.call(this, node);
+        patchInsertedFrame(node);
+        return result;
       };
       Node.prototype.insertBefore = function (node, child) {
         if (blockedResourceNode(node)) return node;
-        return nativeInsertBefore.call(this, node, child);
+        const result = nativeInsertBefore.call(this, node, child);
+        patchInsertedFrame(node);
+        return result;
       };
     } catch {
       // DOM insertion hooks are best-effort.
@@ -1020,16 +1412,53 @@
       }, true);
     }
 
-    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart"]) {
+    // Mark play gestures on pointerdown BEFORE Streamtape's click handler may
+    // call window.open (ad tab). That way blocked popups will not nudge media
+    // ahead of Plyr's own toggle (which would then pause).
+    for (const type of ["pointerdown", "mousedown", "touchstart"]) {
+      document.addEventListener(type, (event) => {
+        const playButton = playbackControl(event.target);
+        if (!playButton) return;
+        if (pauseControlIntent(playButton)) {
+          markExplicitPause();
+          return;
+        }
+        if (playControlIntent(playButton)) {
+          markPlayGesture();
+          prepareVideoSource();
+          dismissResumePrompt();
+        }
+      }, true);
+    }
+
+    // Surface presses are swallowed so ad scripts cannot open popunders.
+    // - paused: start playback once per gesture
+    // - playing: do nothing except block ads; pause only via control-bar buttons
+    let surfaceGestureActive = false;
+    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend"]) {
       document.addEventListener(type, (event) => {
         if (!playerArea(event.target) || playerControl(event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
+
+        if (type === "pointerdown" || type === "mousedown" || type === "touchstart") {
+          if (!surfaceGestureActive) {
+            surfaceGestureActive = true;
+            if (!isPlaybackActive()) startPlaybackFromSurface();
+          }
+          return;
+        }
+
+        if (type === "pointerup" || type === "mouseup" || type === "touchend") {
+          surfaceGestureActive = false;
+        }
       }, true);
     }
 
     document.addEventListener("click", (event) => {
       if (playerArea(event.target) && !playerControl(event.target)) {
+        // Click is often suppressed after our pointerdown preventDefault; if it
+        // still arrives, only swallow it. Pause is never triggered here.
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
@@ -1037,13 +1466,29 @@
 
       const playButton = playbackControl(event.target);
       if (!playButton) return;
-      const video = document.querySelector("video");
-      const shouldStartPlayback = !video || video.paused || video.ended;
-      if (!shouldStartPlayback) return;
+      // Explicit control-bar / center-overlay play/pause: keep the native handler.
+      // If the user clicked Pause, do NOT auto-resume (old bug: pause then
+      // nudgePlayback() immediately restarted ST/Plyr).
+      if (pauseControlIntent(playButton)) {
+        markExplicitPause();
+        return;
+      }
+      // Center big Play / control-bar Play: reinforce gesture + prepare source.
+      if (playControlIntent(playButton)) {
+        markPlayGesture();
+        prepareVideoSource();
+        dismissResumePrompt();
+      }
+      // If native play did not stick, silently start media after a short wait
+      // (after Plyr handled the click). Never re-click the toggle button.
       setTimeout(() => {
-        const latestVideo = document.querySelector("video");
-        if (!latestVideo || latestVideo.paused || latestVideo.ended) nudgePlayback();
-      }, 0);
+        if (Date.now() < pauseGuardUntil) return;
+        if (isPlaybackActive()) return;
+        const latestVideo = playerVideo();
+        if (!latestVideo || latestVideo.paused || latestVideo.ended) {
+          nudgePlayback({ forceSilent: true, allowButtonClick: false });
+        }
+      }, 120);
     }, true);
 
     document.addEventListener("submit", (event) => {
@@ -1054,9 +1499,15 @@
     }, true);
 
     maintainPlayerSurface();
-    setInterval(maintainPlayerSurface, 500);
-    new MutationObserver(maintainPlayerSurface)
-      .observe(document.documentElement, { childList: true, subtree: true });
+    patchAllFrames();
+    setInterval(() => {
+      maintainPlayerSurface();
+      patchAllFrames();
+    }, 500);
+    new MutationObserver(() => {
+      maintainPlayerSurface();
+      patchAllFrames();
+    }).observe(document.documentElement, { childList: true, subtree: true });
   }
 
   const addStyle = () => {
@@ -1066,9 +1517,21 @@
       .play-ad,
       #lcb,
       [class*="root--26nWL"],
-      [class*="bottomRight--"] {
+      [class*="bottomRight--"],
+      .plyr__ads,
+      .ima-ad-container,
+      iframe[title="Advertisement"],
+      video[title="Advertisement"] {
         display: none !important;
         pointer-events: none !important;
+      }
+      /* Disable Supjav DOWNLOAD : RG / K2S / SUBY buttons */
+      .downscase,
+      a.btn-down {
+        pointer-events: none !important;
+        opacity: 0.4 !important;
+        cursor: not-allowed !important;
+        filter: grayscale(1);
       }
     `;
     document.documentElement.appendChild(style);
@@ -1168,13 +1631,21 @@
   };
 
   const requestExportState = () => {
+    // Ask every same-page frame; nested player frames also rebroadcast on this
+    // request type, so the top page can collect VOE/streamtape state.
+    const request = { type: exportStateRequest };
     document.querySelectorAll("iframe").forEach((iframe) => {
       try {
-        iframe.contentWindow.postMessage({ type: exportStateRequest }, "*");
+        iframe.contentWindow.postMessage(request, "*");
       } catch {
         // Cross-origin iframe requests are best-effort.
       }
     });
+    try {
+      window.postMessage(request, "*");
+    } catch {
+      // Ignore same-window postMessage failures.
+    }
   };
 
   const copyText = async (text) => {
@@ -1317,6 +1788,12 @@
   };
 
   const exportCurrentLink = async (button) => {
+    // Nested player frames (supremejav -> VOE mirror) may need a couple of
+    // request/broadcast cycles before the top page sees a stream URL.
+    requestExportState();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    requestExportState();
+    await new Promise((resolve) => setTimeout(resolve, 500));
     requestExportState();
     await new Promise((resolve) => setTimeout(resolve, 350));
 
